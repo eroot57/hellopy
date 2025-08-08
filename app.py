@@ -203,7 +203,7 @@ with col1:
                 st.session_state.mining_process = run_shell_command(mining_cmd, stream_output=True)
                 
                 # Wait a moment and check if process started correctly
-                time.sleep(1)
+                time.sleep(2)  # Give it more time to start
                 
                 if st.session_state.mining_process and st.session_state.mining_process.poll() is None:
                     st.success("🚀 Mining process started successfully!")
@@ -215,13 +215,21 @@ with col1:
                             stdout, stderr = st.session_state.mining_process.communicate(timeout=2)
                             if stderr:
                                 st.error(f"Error output: {stderr}")
+                                # Add to logs immediately
+                                timestamp = time.strftime("%H:%M:%S")
+                                st.session_state.raw_log += f"[{timestamp}] [STDERR] {stderr}\n"
                             if stdout:
                                 st.info(f"Standard output: {stdout}")
+                                # Add to logs immediately
+                                timestamp = time.strftime("%H:%M:%S")
+                                st.session_state.raw_log += f"[{timestamp}] [STDOUT] {stdout}\n"
                         except subprocess.TimeoutExpired:
-                            pass
+                            st.warning("Process timed out - may still be starting")
+                        except Exception as e:
+                            st.error(f"Error reading process output: {e}")
                         st.session_state.mining_process = None
                 
-                st.rerun()
+                # Don't rerun immediately - let user see the messages
             else:
                 st.error(f"❌ Failed to make executable: {chmod_result['stderr']}")
                 # Also show if the file exists
@@ -341,14 +349,23 @@ if st.session_state.mining_process:
         else:
             st.text("No log data yet...")
 
-# Auto-refresh while mining
-if st.session_state.mining_process:
+# Auto-refresh while mining (but not immediately after starting)
+if st.session_state.mining_process and st.session_state.mining_process.poll() is None:
     time.sleep(2)
     st.rerun()
 
 # Manual refresh button
-if st.button("🔄 Refresh"):
-    st.rerun()
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🔄 Refresh"):
+        st.rerun()
+
+with col2:
+    if st.button("🧹 Clear Logs"):
+        st.session_state.mining_output = []
+        st.session_state.raw_log = ""
+        st.success("Logs cleared!")
+        st.rerun()
 
 # Add info section
 st.markdown("---")
