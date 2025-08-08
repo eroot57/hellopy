@@ -66,6 +66,8 @@ if 'mining_process' not in st.session_state:
     st.session_state.mining_process = None
 if 'mining_output' not in st.session_state:
     st.session_state.mining_output = []
+if 'raw_log' not in st.session_state:
+    st.session_state.raw_log = ""
 
 # Display current working directory
 st.markdown("### Current Directory:")
@@ -202,12 +204,13 @@ with col2:
             st.session_state.mining_process.terminate()
             st.session_state.mining_process = None
             st.session_state.mining_output = []
+            st.session_state.raw_log = ""
             st.success("🛑 Mining stopped")
             st.rerun()
 
 # Display mining output
 if st.session_state.mining_process:
-    st.markdown("### Mining Output:")
+    st.markdown("### Mining Status:")
     
     # Check if process is still running
     if st.session_state.mining_process.poll() is None:
@@ -217,10 +220,19 @@ if st.session_state.mining_process:
         try:
             output = st.session_state.mining_process.stdout.readline()
             if output:
-                st.session_state.mining_output.append(output.strip())
-                # Keep only last 20 lines
+                output_line = output.strip()
+                st.session_state.mining_output.append(output_line)
+                # Add to raw log with timestamp
+                timestamp = time.strftime("%H:%M:%S")
+                st.session_state.raw_log += f"[{timestamp}] {output_line}\n"
+                
+                # Keep only last 20 lines for formatted output
                 if len(st.session_state.mining_output) > 20:
                     st.session_state.mining_output = st.session_state.mining_output[-20:]
+                
+                # Keep raw log under reasonable size (last 10000 characters)
+                if len(st.session_state.raw_log) > 10000:
+                    st.session_state.raw_log = st.session_state.raw_log[-10000:]
         except:
             pass
             
@@ -228,10 +240,39 @@ if st.session_state.mining_process:
         st.warning("⚠️ Mining process has stopped")
         st.session_state.mining_process = None
     
-    # Display output
-    if st.session_state.mining_output:
-        output_text = '\n'.join(st.session_state.mining_output)
-        st.code(output_text, language="bash")
+    # Create tabs for different views
+    tab1, tab2 = st.tabs(["📊 Formatted Output", "📝 Raw Log"])
+    
+    with tab1:
+        st.markdown("**Recent Mining Output (Last 20 lines):**")
+        if st.session_state.mining_output:
+            output_text = '\n'.join(st.session_state.mining_output)
+            st.code(output_text, language="bash")
+        else:
+            st.text("No output yet...")
+    
+    with tab2:
+        st.markdown("**Complete Raw Log:**")
+        if st.session_state.raw_log:
+            # Create a text area for the raw log
+            st.text_area(
+                "Raw Mining Log", 
+                value=st.session_state.raw_log,
+                height=400,
+                disabled=True,
+                key="raw_log_display"
+            )
+            
+            # Add download button for the log
+            if st.download_button(
+                label="💾 Download Raw Log",
+                data=st.session_state.raw_log,
+                file_name=f"mining_log_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
+            ):
+                st.success("📥 Log downloaded!")
+        else:
+            st.text("No log data yet...")
 
 # Auto-refresh while mining
 if st.session_state.mining_process:
