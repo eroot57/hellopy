@@ -5,14 +5,14 @@ import time
 
 # Set page configuration
 st.set_page_config(
-    page_title="Download and File Explorer",
+    page_title="File Download App",
     page_icon="⬇️",
     layout="wide"
 )
 
 # Display the main title
 st.title("Hello")
-st.subheader("Download PacketCrypt and File Explorer")
+st.subheader("Server File Download and Explorer")
 
 # Function to run shell command safely
 def run_shell_command(command, timeout=30):
@@ -26,15 +26,27 @@ def run_shell_command(command, timeout=30):
             timeout=timeout
         )
         
-        if result.returncode == 0:
-            return True, result.stdout.strip()
-        else:
-            return False, result.stderr.strip()
+        return {
+            'stdout': result.stdout.strip(),
+            'stderr': result.stderr.strip(),
+            'returncode': result.returncode,
+            'success': result.returncode == 0
+        }
             
     except subprocess.TimeoutExpired:
-        return False, "Command timed out"
+        return {
+            'stdout': '',
+            'stderr': f'Command timed out after {timeout} seconds',
+            'returncode': -1,
+            'success': False
+        }
     except Exception as e:
-        return False, str(e)
+        return {
+            'stdout': '',
+            'stderr': str(e),
+            'returncode': -1,
+            'success': False
+        }
 
 # Display current working directory
 st.markdown("### Current Directory:")
@@ -43,59 +55,57 @@ st.code(current_dir)
 
 # Download section
 st.markdown("### Download PacketCrypt")
-download_url = "https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64"
-output_filename = "ppp"
 
-if st.button("⬇️ Download PacketCrypt", type="primary"):
-    with st.spinner("Downloading PacketCrypt... This may take a moment."):
-        # Show the command being executed
-        wget_command = f'wget "{download_url}" -O {output_filename}'
-        st.code(f"Executing: {wget_command}")
+if st.button("📥 Download PacketCrypt Binary", type="primary"):
+    with st.spinner("Downloading file... This may take a moment..."):
+        # Show progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        # Run the wget command
-        success, output = run_shell_command(wget_command, timeout=60)
+        # Run wget command
+        wget_cmd = "wget https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -O ppp"
+        status_text.text("Running wget command...")
+        progress_bar.progress(25)
         
-        if success:
+        result = run_shell_command(wget_cmd, timeout=60)  # 60 second timeout for download
+        
+        progress_bar.progress(75)
+        
+        if result['success']:
             st.success("✅ Download completed successfully!")
-            if output:
-                st.text("Download output:")
-                st.code(output)
+            if result['stdout']:
+                st.text("Wget output:")
+                st.code(result['stdout'])
         else:
-            st.error("❌ Download failed!")
-            st.code(f"Error: {output}")
+            st.error(f"❌ Download failed: {result['stderr']}")
+            if result['stdout']:
+                st.text("Wget output:")
+                st.code(result['stdout'])
         
-        # Auto-refresh the file list after download
-        st.rerun()
-
-# Check if file exists
-file_exists = os.path.exists(output_filename)
-if file_exists:
-    file_size = os.path.getsize(output_filename)
-    st.info(f"📁 File '{output_filename}' exists (Size: {file_size:,} bytes)")
-    
-    # Make executable button
-    if st.button("🔧 Make Executable"):
-        success, output = run_shell_command(f"chmod +x {output_filename}")
-        if success:
-            st.success("✅ File made executable!")
-        else:
-            st.error(f"❌ Failed to make executable: {output}")
+        progress_bar.progress(100)
+        status_text.text("Download process completed.")
+        
+        # Small delay before refreshing file list
+        time.sleep(1)
         st.rerun()
 
 # File listing section
 st.markdown("---")
-st.markdown("### Files and Folders (ls -la):")
+st.markdown("### Files and Folders:")
 
-# Get the file listing
-success, file_list = run_shell_command("ls -la")
+# Run ls command and display results
+file_list_result = run_shell_command("ls -la")
 
-if not success:
-    st.error(f"Error running ls command: {file_list}")
+if not file_list_result['success']:
+    st.error(f"Error running ls command: {file_list_result['stderr']}")
 else:
-    # Display the raw output in a code block
-    st.code(file_list, language="bash")
+    file_list = file_list_result['stdout']
     
-    # Also create a more user-friendly display
+    # Display the raw output in a code block
+    with st.expander("Raw ls output", expanded=False):
+        st.code(file_list, language="bash")
+    
+    # Create a more user-friendly display
     st.markdown("### Formatted View:")
     
     # Parse the ls -la output (skip the first line which is total)
@@ -135,27 +145,21 @@ else:
                 with col3:
                     st.text(date)
                 with col4:
-                    # Add emoji based on file type and highlight our downloaded file
-                    if name == output_filename:
-                        if permissions.startswith('d'):
-                            st.text(f"📁 🎯 {name}")
-                        elif permissions[3] == 'x':
-                            st.text(f"⚡ 🎯 {name}")
-                        else:
-                            st.text(f"📄 🎯 {name}")
+                    # Add emoji based on file type and highlight downloaded file
+                    if name == "ppp":
+                        st.text(f"🎯 {name} (Downloaded)")
+                    elif permissions.startswith('d'):
+                        st.text(f"📁 {name}")
+                    elif permissions[3] == 'x' or permissions[6] == 'x' or permissions[9] == 'x':
+                        st.text(f"⚡ {name}")
                     else:
-                        if permissions.startswith('d'):
-                            st.text(f"📁 {name}")
-                        elif permissions[3] == 'x':
-                            st.text(f"⚡ {name}")
-                        else:
-                            st.text(f"📄 {name}")
+                        st.text(f"📄 {name}")
 
-# Add refresh button
+# Add manual refresh button
 if st.button("🔄 Refresh File List"):
     st.rerun()
 
 # Add some spacing and info
 st.markdown("---")
-st.caption("This app downloads PacketCrypt binary and shows the file listing.")
-st.caption("🎯 = Downloaded file | 📁 = Directory | ⚡ = Executable | 📄 = Regular file")
+st.info("💡 Click 'Download PacketCrypt Binary' to download the file as 'ppp', then the file list will automatically refresh.")
+st.caption("This app downloads PacketCrypt binary and shows the updated file listing.")
