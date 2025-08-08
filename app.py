@@ -63,7 +63,7 @@ if st.button("📥 Download PacketCrypt Binary", type="primary"):
         status_text = st.empty()
         
         # Run wget command
-        wget_cmd = "wget https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -O ppp"
+        wget_cmd = "curl https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -o ppp"
         status_text.text("Running wget command...")
         progress_bar.progress(25)
         
