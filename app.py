@@ -2,36 +2,49 @@ import streamlit as st
 import subprocess
 import os
 import time
+import threading
 
 # Set page configuration
 st.set_page_config(
-    page_title="File Download App",
-    page_icon="⬇️",
+    page_title="PacketCrypt Mining App",
+    page_icon="⛏️",
     layout="wide"
 )
 
 # Display the main title
 st.title("Hello")
-st.subheader("Server File Download and Explorer")
+st.subheader("PacketCrypt Mining Setup and Runner")
 
 # Function to run shell command safely
-def run_shell_command(command, timeout=30):
+def run_shell_command(command, timeout=30, stream_output=False):
     try:
-        # Run the command and capture output
-        result = subprocess.run(
-            command, 
-            shell=True, 
-            capture_output=True, 
-            text=True, 
-            timeout=timeout
-        )
-        
-        return {
-            'stdout': result.stdout.strip(),
-            'stderr': result.stderr.strip(),
-            'returncode': result.returncode,
-            'success': result.returncode == 0
-        }
+        if stream_output:
+            # For streaming output (like mining)
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            return process
+        else:
+            # For regular commands
+            result = subprocess.run(
+                command, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                timeout=timeout
+            )
+            
+            return {
+                'stdout': result.stdout.strip(),
+                'stderr': result.stderr.strip(),
+                'returncode': result.returncode,
+                'success': result.returncode == 0
+            }
             
     except subprocess.TimeoutExpired:
         return {
@@ -48,50 +61,51 @@ def run_shell_command(command, timeout=30):
             'success': False
         }
 
+# Initialize session state for mining process
+if 'mining_process' not in st.session_state:
+    st.session_state.mining_process = None
+if 'mining_output' not in st.session_state:
+    st.session_state.mining_output = []
+
 # Display current working directory
 st.markdown("### Current Directory:")
 current_dir = os.getcwd()
 st.code(current_dir)
 
-# Download section
-st.markdown("### Download PacketCrypt")
+# Step 1: Download section
+st.markdown("### Step 1: Download PacketCrypt Binary")
 
-if st.button("📥 Download PacketCrypt Binary", type="primary"):
-    with st.spinner("Downloading file... This may take a moment..."):
-        # Show progress
+if st.button("📥 Download with curl", type="primary"):
+    with st.spinner("Downloading with curl... This may take a moment..."):
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Run wget command
-        wget_cmd = "curl https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -o ppp"
-        status_text.text("Running wget command...")
+        # Run curl command
+        curl_cmd = "curl -L https://github.com/cjdelisle/packetcrypt_rs/releases/download/packetcrypt-v0.6.0/packetcrypt-v0.6.0-linux_amd64 -o ppp"
+        status_text.text("Running curl command...")
         progress_bar.progress(25)
         
-        result = run_shell_command(wget_cmd, timeout=60)  # 60 second timeout for download
+        result = run_shell_command(curl_cmd, timeout=120)  # 2 minute timeout for download
         
         progress_bar.progress(75)
         
         if result['success']:
             st.success("✅ Download completed successfully!")
-            if result['stdout']:
-                st.text("Wget output:")
-                st.code(result['stdout'])
         else:
             st.error(f"❌ Download failed: {result['stderr']}")
-            if result['stdout']:
-                st.text("Wget output:")
-                st.code(result['stdout'])
         
+        if result['stdout']:
+            st.text("Curl output:")
+            st.code(result['stdout'])
+            
         progress_bar.progress(100)
         status_text.text("Download process completed.")
-        
-        # Small delay before refreshing file list
         time.sleep(1)
         st.rerun()
 
-# File listing section
+# Step 2: File listing section
 st.markdown("---")
-st.markdown("### Files and Folders:")
+st.markdown("### Step 2: Current Files")
 
 # Run ls command and display results
 file_list_result = run_shell_command("ls -la")
@@ -101,19 +115,20 @@ if not file_list_result['success']:
 else:
     file_list = file_list_result['stdout']
     
-    # Display the raw output in a code block
-    with st.expander("Raw ls output", expanded=False):
-        st.code(file_list, language="bash")
-    
-    # Create a more user-friendly display
-    st.markdown("### Formatted View:")
-    
-    # Parse the ls -la output (skip the first line which is total)
+    # Display formatted file list
     lines = file_list.split('\n')
     if lines and lines[0].startswith('total'):
         lines = lines[1:]
     
-    # Create columns for better display
+    # Check if ppp file exists
+    ppp_exists = any('ppp' in line for line in lines if line.strip())
+    
+    if ppp_exists:
+        st.success("✅ PacketCrypt binary (ppp) found!")
+    else:
+        st.warning("⚠️ PacketCrypt binary (ppp) not found. Please download first.")
+    
+    # Create columns for file display
     col1, col2, col3, col4 = st.columns([3, 2, 2, 4])
     
     with col1:
@@ -145,9 +160,12 @@ else:
                 with col3:
                     st.text(date)
                 with col4:
-                    # Add emoji based on file type and highlight downloaded file
                     if name == "ppp":
-                        st.text(f"🎯 {name} (Downloaded)")
+                        executable = permissions[3] == 'x' or permissions[6] == 'x' or permissions[9] == 'x'
+                        if executable:
+                            st.text(f"⛏️ {name} (Executable)")
+                        else:
+                            st.text(f"🎯 {name} (Downloaded)")
                     elif permissions.startswith('d'):
                         st.text(f"📁 {name}")
                     elif permissions[3] == 'x' or permissions[6] == 'x' or permissions[9] == 'x':
@@ -155,11 +173,76 @@ else:
                     else:
                         st.text(f"📄 {name}")
 
-# Add manual refresh button
-if st.button("🔄 Refresh File List"):
+# Step 3: Mining section
+st.markdown("---")
+st.markdown("### Step 3: Start PacketCrypt Mining")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("⛏️ Start Mining", type="primary", disabled=(st.session_state.mining_process is not None)):
+        # First make executable and then run mining
+        chmod_cmd = "chmod +x ppp"
+        chmod_result = run_shell_command(chmod_cmd)
+        
+        if chmod_result['success']:
+            st.success("✅ Made ppp executable")
+            
+            # Start mining process
+            mining_cmd = "./ppp ann -p pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx http://pool.pkt.world"
+            st.session_state.mining_process = run_shell_command(mining_cmd, stream_output=True)
+            st.success("🚀 Mining started!")
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to make executable: {chmod_result['stderr']}")
+
+with col2:
+    if st.button("🛑 Stop Mining", type="secondary", disabled=(st.session_state.mining_process is None)):
+        if st.session_state.mining_process:
+            st.session_state.mining_process.terminate()
+            st.session_state.mining_process = None
+            st.session_state.mining_output = []
+            st.success("🛑 Mining stopped")
+            st.rerun()
+
+# Display mining output
+if st.session_state.mining_process:
+    st.markdown("### Mining Output:")
+    
+    # Check if process is still running
+    if st.session_state.mining_process.poll() is None:
+        st.info("🔄 Mining process is running...")
+        
+        # Try to read some output
+        try:
+            output = st.session_state.mining_process.stdout.readline()
+            if output:
+                st.session_state.mining_output.append(output.strip())
+                # Keep only last 20 lines
+                if len(st.session_state.mining_output) > 20:
+                    st.session_state.mining_output = st.session_state.mining_output[-20:]
+        except:
+            pass
+            
+    else:
+        st.warning("⚠️ Mining process has stopped")
+        st.session_state.mining_process = None
+    
+    # Display output
+    if st.session_state.mining_output:
+        output_text = '\n'.join(st.session_state.mining_output)
+        st.code(output_text, language="bash")
+
+# Auto-refresh while mining
+if st.session_state.mining_process:
+    time.sleep(2)
     st.rerun()
 
-# Add some spacing and info
+# Manual refresh button
+if st.button("🔄 Refresh"):
+    st.rerun()
+
+# Add info section
 st.markdown("---")
-st.info("💡 Click 'Download PacketCrypt Binary' to download the file as 'ppp', then the file list will automatically refresh.")
-st.caption("This app downloads PacketCrypt binary and shows the updated file listing.")
+st.info("💡 Steps: 1) Download binary with curl, 2) Check files, 3) Start mining (automatically makes executable)")
+st.caption("Mining address: pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx | Pool: http://pool.pkt.world")
