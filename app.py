@@ -19,12 +19,12 @@ st.subheader("PacketCrypt Mining Setup and Runner")
 def run_shell_command(command, timeout=30, stream_output=False):
     try:
         if stream_output:
-            # For streaming output (like mining)
+            # For streaming output (like mining) - capture both stdout and stderr
             process = subprocess.Popen(
                 command,
                 shell=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stderr=subprocess.PIPE,
                 universal_newlines=True,
                 bufsize=1
             )
@@ -183,20 +183,53 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("⛏️ Start Mining", type="primary", disabled=(st.session_state.mining_process is not None)):
-        # First make executable and then run mining
-        chmod_cmd = "chmod +x ppp"
-        chmod_result = run_shell_command(chmod_cmd)
-        
-        if chmod_result['success']:
-            st.success("✅ Made ppp executable")
+        with st.spinner("Starting mining process..."):
+            # First make executable and then run mining
+            chmod_cmd = "chmod +x ppp"
+            chmod_result = run_shell_command(chmod_cmd)
             
-            # Start mining process
-            mining_cmd = "./ppp ann -p pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx http://pool.pkt.world"
-            st.session_state.mining_process = run_shell_command(mining_cmd, stream_output=True)
-            st.success("🚀 Mining started!")
-            st.rerun()
-        else:
-            st.error(f"❌ Failed to make executable: {chmod_result['stderr']}")
+            if chmod_result['success']:
+                st.success("✅ Made ppp executable")
+                
+                # Show the exact command being executed
+                mining_cmd = "./ppp ann -p pkt1qfhr09kswj2hy0xgnzzj5r8ux09m7ltnuumf4xx http://pool.pkt.world"
+                st.info(f"🚀 Executing: `{mining_cmd}`")
+                
+                # Clear previous logs
+                st.session_state.mining_output = []
+                st.session_state.raw_log = ""
+                
+                # Start mining process
+                st.session_state.mining_process = run_shell_command(mining_cmd, stream_output=True)
+                
+                # Wait a moment and check if process started correctly
+                time.sleep(1)
+                
+                if st.session_state.mining_process and st.session_state.mining_process.poll() is None:
+                    st.success("🚀 Mining process started successfully!")
+                else:
+                    st.error("❌ Mining process failed to start or exited immediately")
+                    # Try to get any immediate error output
+                    if st.session_state.mining_process:
+                        try:
+                            stdout, stderr = st.session_state.mining_process.communicate(timeout=2)
+                            if stderr:
+                                st.error(f"Error output: {stderr}")
+                            if stdout:
+                                st.info(f"Standard output: {stdout}")
+                        except subprocess.TimeoutExpired:
+                            pass
+                        st.session_state.mining_process = None
+                
+                st.rerun()
+            else:
+                st.error(f"❌ Failed to make executable: {chmod_result['stderr']}")
+                # Also show if the file exists
+                ls_result = run_shell_command("ls -la ppp")
+                if ls_result['success']:
+                    st.code(f"File info: {ls_result['stdout']}")
+                else:
+                    st.error("❌ File 'ppp' not found!")
 
 with col2:
     if st.button("🛑 Stop Mining", type="secondary", disabled=(st.session_state.mining_process is None)):
@@ -216,28 +249,62 @@ if st.session_state.mining_process:
     if st.session_state.mining_process.poll() is None:
         st.info("🔄 Mining process is running...")
         
-        # Try to read some output
+        # Try to read output from both stdout and stderr
         try:
-            output = st.session_state.mining_process.stdout.readline()
-            if output:
-                output_line = output.strip()
+            # Read from stdout
+            stdout_line = st.session_state.mining_process.stdout.readline()
+            if stdout_line:
+                output_line = f"[STDOUT] {stdout_line.strip()}"
                 st.session_state.mining_output.append(output_line)
-                # Add to raw log with timestamp
                 timestamp = time.strftime("%H:%M:%S")
                 st.session_state.raw_log += f"[{timestamp}] {output_line}\n"
-                
-                # Keep only last 20 lines for formatted output
-                if len(st.session_state.mining_output) > 20:
-                    st.session_state.mining_output = st.session_state.mining_output[-20:]
-                
-                # Keep raw log under reasonable size (last 10000 characters)
-                if len(st.session_state.raw_log) > 10000:
-                    st.session_state.raw_log = st.session_state.raw_log[-10000:]
+            
+            # Read from stderr
+            stderr_line = st.session_state.mining_process.stderr.readline()
+            if stderr_line:
+                error_line = f"[STDERR] {stderr_line.strip()}"
+                st.session_state.mining_output.append(error_line)
+                timestamp = time.strftime("%H:%M:%S")
+                st.session_state.raw_log += f"[{timestamp}] {error_line}\n"
+            
+            # Keep only last 20 lines for formatted output
+            if len(st.session_state.mining_output) > 20:
+                st.session_state.mining_output = st.session_state.mining_output[-20:]
+            
+            # Keep raw log under reasonable size (last 15000 characters)
+            if len(st.session_state.raw_log) > 15000:
+                st.session_state.raw_log = st.session_state.raw_log[-15000:]
         except:
             pass
             
     else:
-        st.warning("⚠️ Mining process has stopped")
+        # Process has ended, try to get final output
+        return_code = st.session_state.mining_process.returncode
+        st.warning(f"⚠️ Mining process has stopped (exit code: {return_code})")
+        
+        # Get any remaining output
+        try:
+            remaining_stdout, remaining_stderr = st.session_state.mining_process.communicate(timeout=2)
+            if remaining_stderr:
+                error_lines = remaining_stderr.strip().split('\n')
+                for line in error_lines:
+                    if line.strip():
+                        error_line = f"[STDERR] {line.strip()}"
+                        st.session_state.mining_output.append(error_line)
+                        timestamp = time.strftime("%H:%M:%S")
+                        st.session_state.raw_log += f"[{timestamp}] {error_line}\n"
+            
+            if remaining_stdout:
+                output_lines = remaining_stdout.strip().split('\n')
+                for line in output_lines:
+                    if line.strip():
+                        output_line = f"[STDOUT] {line.strip()}"
+                        st.session_state.mining_output.append(output_line)
+                        timestamp = time.strftime("%H:%M:%S")
+                        st.session_state.raw_log += f"[{timestamp}] {output_line}\n"
+        except subprocess.TimeoutExpired:
+            st.error("Process ended but couldn't read final output")
+        
         st.session_state.mining_process = None
     
     # Create tabs for different views
